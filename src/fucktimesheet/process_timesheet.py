@@ -1,4 +1,11 @@
+from PIL import Image, ImageDraw, ImageFont
 from openpyxl.styles import Alignment, Font
+from datetime import datetime, timedelta
+from dateutil.relativedelta import relativedelta
+from docx import Document
+from docx.enum.section import WD_ORIENT, WD_SECTION
+from docx.shared import Inches, Pt
+import calendar
 import copy
 import sys
 import glob
@@ -46,22 +53,131 @@ def process_and_convert(oil_days, input_xlsx="timesheet.xlsx", output_dir=r"D:\t
     
     
     ws.page_setup.orientation = ws.ORIENTATION_LANDSCAPE
+    ws.page_setup.paperSize = ws.PAPERSIZE_A4
     ws.page_setup.fitToWidth = 1
     ws.page_setup.fitToHeight = 0
     ws.sheet_properties.pageSetUpPr.fitToPage = True
 
-    processed_xlsx = os.path.join(output_dir, "processed_timesheet_test.xlsx")
+    processed_xlsx = os.path.join(output_dir, "processed_timesheet.xlsx")
     wb.save(processed_xlsx)
     print(f"Successfully generate timesheet at {processed_xlsx}!")
 
     
     cmd = ["soffice", "--headless", "--convert-to", "pdf", "--outdir", output_dir, processed_xlsx]
     subprocess.run(cmd, check=True)
-    expected_pdf = os.path.join(output_dir, "processed_timesheet_test.pdf")
+    expected_pdf = os.path.join(output_dir, "processed_timesheet.pdf")
     print(f"Successfully converted {processed_xlsx} to {expected_pdf}!")
 
-def populate_xlsx():
-    pass
+    prepare_signature_page()
+    prepare_signature_doc()
+    merge_page()
+
+def prepare_signature_doc():
+    doc = Document()
+    output_dir=r"D:\timesheet"
+
+    section = doc.sections[0]
+
+    section.page_width = Inches(11.69)
+    section.page_height = Inches(8.27)
+    section.orientation = WD_ORIENT.LANDSCAPE
+
+    section.top_margin = Inches(0.5)
+    section.bottom_margin = Inches(0.5)
+    section.left_margin = Inches(0.5)
+    section.right_margin = Inches(0.5)
+
+    doc.add_picture(r"D:\timesheet\assets\ATTENDANCE SIGNATURE BOX (1).png", width=Inches(10.69))
+
+    docx_path = r"D:\timesheet\attendance.signature.docx"
+    doc.save(docx_path)
+
+    signature_doc_pdf = os.path.join(output_dir, "attendance.signature.pdf")
+
+    subprocess.run([
+        "soffice",
+        "--headless",
+        "--convert-to",
+        "pdf",
+        "--outdir",
+        output_dir,
+        docx_path
+    ], check=True)
+
+    print(f"Converted {docx_path} to {signature_doc_pdf}")
+
+def merge_page():
+    output_dir = r"D:\timesheet"
+
+    pdfs = [
+        os.path.join(output_dir, "processed_timesheet.pdf"),
+        os.path.join(output_dir, "attendance.signature.pdf")
+    ]
+
+    current_month_year = (datetime.now() - relativedelta(months=1)).strftime("%Y%m")
+
+    merged_pdf = os.path.join(output_dir, f"time_sheet-ahmad_sulha-{current_month_year}.pdf")
+
+    cmd = ["qpdf", "--empty", "--pages"] + pdfs + ["--", merged_pdf]
+    subprocess.run(cmd, check=True)
+    print(f"Merged pdfs into {merged_pdf}")
+
+
+def prepare_signature_page():
+    signature_page = Image.open(r"D:\timesheet\assets\ATTENDANCE SIGNATURE BOX (1).png")
+
+    erase_own_date(signature_page)
+    erase_hm_date(signature_page)
+    # erase_signature(signature_page)
+    write_own_date(signature_page)
+    write_hm_date(signature_page)
+
+    signature_page.save(r"D:\timesheet\assets\ATTENDANCE SIGNATURE BOX (1).png")
+
+def erase_own_date(signature_page):
+    draw = ImageDraw.Draw(signature_page)
+
+    x1, y1 = 1400, 150
+    x2, y2 = 1920, 220
+
+    draw.rectangle([x1, y1, x2, y2], fill="white")
+
+def erase_hm_date(signature_page):
+    draw = ImageDraw.Draw(signature_page)
+
+    x1, y1 = 1393, 473
+    x2, y2 = 1916, 554
+
+    draw.rectangle([x1, y1, x2, y2], fill="white")
+
+def erase_signature(signature_page):
+    draw = ImageDraw.Draw(signature_page)
+
+    x1, y1 = 468, 110
+    x2, y2 = 984, 222
+
+    draw.rectangle([x1, y1, x2, y2], fill="white")
+
+def write_own_date(signature_page):
+    draw = ImageDraw.Draw(signature_page)
+
+    font = ImageFont.truetype("arial.ttf", size=36)
+    own_date = datetime.now().strftime("01/%m/%Y")
+
+    draw.text((1429, 190), own_date, fill="black", font=font)
+
+def write_hm_date(signature_page):
+    draw = ImageDraw.Draw(signature_page)
+
+    font = ImageFont.truetype("arial.ttf", size=36)
+
+    now = datetime.now()
+    first_of_month = datetime(now.year, now.month, 1)
+    days_until_friday = (4 - first_of_month.weekday()) % 7
+    first_friday = first_of_month + timedelta(days=days_until_friday)
+    hm_date = first_friday.strftime("%d/%m/%Y")
+
+    draw.text((1429, 520), hm_date, fill="black", font=font)
 
 def ensure_xlsx(file_path: str, output_dir: str = r"D:\timesheet") -> str:
     """Converts .xls to .xlsx natively using LibreOffice, preserving all layout & formatting."""
