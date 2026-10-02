@@ -1,3 +1,4 @@
+from playwright.sync_api import sync_playwright
 from PIL import Image, ImageDraw, ImageFont
 from openpyxl.styles import Alignment, Font
 from datetime import datetime, timedelta
@@ -5,6 +6,8 @@ from dateutil.relativedelta import relativedelta
 from docx import Document
 from docx.enum.section import WD_ORIENT, WD_SECTION
 from docx.shared import Inches, Pt
+import time
+import json
 import calendar
 import copy
 import sys
@@ -269,10 +272,132 @@ def populate_reason_col(ws, oil_days):
                 reason_cell.font = font_size_8
                 reason_cell.alignment = center_align
 
+def download_timesheet():
+    config_file = os.path.abspath(r"D:\timesheet\assets\config.json")
+
+    print(f"Checking config file at {config_file}")
+    if not os.path.exists(config_file):
+        raise FileNotFoundError(f"File not found at: {config_file}")
+
+    print(f"Found config file at {config_file}")
+
+    with open(config_file, "r", encoding="utf-8") as f:
+        config = json.load(f)
+
+    username = config.get("username")
+    password = config.get("password")
+    target_dir = os.path.abspath(r"D:\timesheet")
+    target_date_from = get_first_day_of_last_month()
+    target_date_to = get_last_day_of_last_month()
+
+    with sync_playwright() as p:
+        browser = p.chromium.launch(headless=False, slow_mo=500, args=["--ignore-certificate-errors"])
+        context = browser.new_context(accept_downloads=True, ignore_https_errors=True)
+        page = context.new_page()
+
+        try:
+            page.goto("https://www.infotech-cloudhr.com.my/Login.aspx")
+            page.fill('input[name="Credential.UserId"]', username)
+            page.fill('input[name="Credential.Password"]', password)
+            
+            with page.expect_navigation(wait_until="networkidle"):
+                page.click('button[type="submit"]')
+
+            print("Clicked login.")
+
+            print("Hovering over top menu 'My Attendance'...")
+            page.wait_for_selector("li[data-menuid='12950'] > a", state="visible", timeout=15000)
+            page.hover("li[data-menuid='12950'] > a")
+
+            page.get_by_text("My Attendance Report").click()
+            print("Clicked My Attendance Report")
+
+            print("Waiting for My Attendance Report page to load")
+            page.wait_for_load_state("networkidle")
+
+            print("Entering from date")
+            date_selector_from = "input[id='ContentPlaceHolder1_txtFromDate']" 
+            page.click(date_selector_from)
+            page.fill(date_selector_from, target_date_from)
+            page.keyboard.press("Enter")
+            print(f"Entered from date as {target_date_from}")
+
+            print("Entering to date")
+            date_selector_from = "input[id='ContentPlaceHolder1_txtToDate']" 
+            page.click(date_selector_from)
+            page.fill(date_selector_from, target_date_to)
+            page.keyboard.press("Enter")
+            print(f"Entered to date as {target_date_to}")
+
+            print("Clicking Show button to display attendance report sheet")
+            page.wait_for_selector("#ContentPlaceHolder1_btnShow", state="visible")
+
+            page.click("#ContentPlaceHolder1_btnShow")
+            print("Clicked Show button to display attendance report sheet")
+
+            # wait
+
+            with page.expect_download() as download_info:
+                page.click('input[id="ContentPlaceHolder1_btnExcel"]')
+
+            download = download_info.value
+            download_path = os.path.join(target_dir, download.suggested_filename)
+            download.save_as(download_path)
+            print(f"Timesheet downloaded to {download_path}")
+
+
+
+            page.wait_for_timeout(10000)
+
+        except Exception as e:
+            print(f"Something not right happened when browsing. Error: {e}")
+            page.wait_for_timeout(10000)
+        
+        finally:
+            context.close()
+            browser.close()
+
+def get_first_day_of_last_month():
+    today = datetime.now()
+
+    # Calculate previous month and year
+    if today.month == 1:
+        prev_month = 12
+        year = today.year - 1
+    else:
+        prev_month = today.month - 1
+        year = today.year
+
+    return f"01-{prev_month:02d}-{year}"
+
+def get_last_day_of_last_month():
+    today = datetime.now()
+
+    # Calculate previous month and year
+    if today.month == 1:
+        prev_month = 12
+        year = today.year - 1
+    else:
+        prev_month = today.month - 1
+        year = today.year
+
+    # calendar.monthrange returns (first_weekday, num_days_in_month)
+    _, last_day = calendar.monthrange(year, prev_month)
+
+    return f"{last_day:02d}-{prev_month:02d}-{year}"
+
 def main():
+    start_time = time.time()
+
     input_xlsx = sys.argv[1] if len(sys.argv) > 1 else None
     oil_days = sys.argv[2] if len(sys.argv) > 2 else None 
+    download_timesheet()
     process_and_convert(input_xlsx=input_xlsx, oil_days=oil_days)
+
+    elapsed = round(time.time() - start_time)
+    minutes, seconds = divmod(elapsed, 60)
+
+    print(f"Done in {minutes:02d} minutes {seconds:02d} seconds.")
 
 if __name__ == "__main__":
     process_and_convert()
