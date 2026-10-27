@@ -21,7 +21,7 @@ COORD_2SEN = "3.1356035766711665, 101.69252036618404"
 COORD_WFH = "3.195078, 101.758454"
 
 
-def process_and_convert(oil_days, input_xlsx="timesheet.xlsx", output_dir=r"D:\timesheet", output_pdf="processed_timesheet.pdf"):
+def process_and_convert(oil_days, wfh_days_override, input_xlsx="timesheet.xlsx", output_dir=r"D:\timesheet", output_pdf="processed_timesheet.pdf"):
     
     matching_files = glob.glob(r"D:\timesheet\*.xls")
 
@@ -51,7 +51,7 @@ def process_and_convert(oil_days, input_xlsx="timesheet.xlsx", output_dir=r"D:\t
         print("Cell containing 'Reason' was not found.")
 
     create_location_cell(reason_cell, ws)
-    populate_reason_col(ws, oil_days)
+    populate_reason_col(ws, oil_days, wfh_days_override)
     populate_location_col(ws)
     
     
@@ -221,13 +221,14 @@ def populate_location_col(ws):
             location_cell.value = COORD_WFH
             location_cell.font = font_size_8
 
-def populate_reason_col(ws, oil_days):
+def populate_reason_col(ws, oil_days, wfh_days_override):
     font_size_8 = Font(size=8, name="ARIAL")
     center_align = Alignment(horizontal="center")
 
     ws.column_dimensions["BR"].width = 25
 
     oil_days = oil_days.split(",")
+    wfh_days_override = wfh_days_override.split(",")
 
     for row_num in range(13, 44):
         day_cell = ws.cell(row=row_num, column=7)
@@ -245,6 +246,10 @@ def populate_reason_col(ws, oil_days):
         if ordinal_date in oil_days:
             reason_cell.value = "OIL"
             reason_cell.font = font_size_8
+            reason_cell.alignment = center_align
+        elif ordinal_date in wfh_days_override:
+            reason_cell.value = "WFH"
+            reason_cell.font =font_size_8
             reason_cell.alignment = center_align
         elif day_val in ("wed", "thu") and not reason_cell.value:
             reason_cell.value = "WIO-2SEN"
@@ -390,9 +395,10 @@ def main():
     start_time = time.time()
 
     input_xlsx = sys.argv[1] if len(sys.argv) > 1 else None
-    oil_days = sys.argv[2] if len(sys.argv) > 2 else None 
+    oil_days = sys.argv[2] if len(sys.argv) > 2 else None
+    wfh_days_override = sys.argv[3] if len(sys.argv) > 3 else None
     download_timesheet()
-    process_and_convert(input_xlsx=input_xlsx, oil_days=oil_days)
+    process_and_convert(input_xlsx=input_xlsx, oil_days=oil_days, wfh_days_override=wfh_days_override)
 
     elapsed = round(time.time() - start_time)
     minutes, seconds = divmod(elapsed, 60)
@@ -400,4 +406,4 @@ def main():
     print(f"Done in {minutes:02d} minutes {seconds:02d} seconds.")
 
 if __name__ == "__main__":
-    process_and_convert()
+    main()
